@@ -1,0 +1,3 @@
+{"id": "sample_1", "prompt": "object which have whiskers.", "image_path": "examples/images/cat.png"}
+{"id": "sample_2", "prompt": "object which have fur.", "image_path": "examples/images/dog.png"}
+{"id": "sample_3", "prompt": "animal which have wings.", "image_path": "examples/images/bird.png"} 
