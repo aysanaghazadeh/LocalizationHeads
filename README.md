@@ -1,5 +1,8 @@
 # Your Large Vision-Language Model Only Needs A Few Attention Heads For Visual Grounding [CVPR 2025 Highlight]
 
+## TL;DR
+This repository provides a one-shot evaluation protocol designed to support the discovery and validation of our primary contribution—Localization Heads—in Large Vision-Language Models.
+
 This repository contains tools for finding and analyzing localization heads in multimodal LLMs. The tools help identify which attention heads in a model are most responsible for localizing objects in images.
 
 **Paper**: [https://arxiv.org/abs/2503.06287](https://arxiv.org/abs/2503.06287)
