@@ -1,0 +1,36 @@
+# @package _global_
+
+# Default configuration for attention visualization
+defaults:
+  - _self_
+  - override hydra/job_logging: colorlog
+  - override hydra/hydra_logging: colorlog
+
+# Hydra configuration
+hydra:
+  run:
+    dir: outputs/visualization/${now:%Y-%m-%d}/${now:%H-%M-%S}
+  job:
+    chdir: false  # Don't change working directory when running
+
+# Visualization mode
+mode: "single"  # single or batch
+
+# Single file visualization settings
+attention_file: ""
+layer: null  # Layer index to visualize (null to visualize top-k heads)
+head: null   # Head index to visualize (null to visualize top-k heads)
+show_components: false  # Whether to visualize connected components
+top_k: 5  # Number of top heads to visualize
+
+# Batch processing settings
+data_file: ""  # Path to JSONL file containing data entries
+output_dir: "outputs/visualization"
+process_all: true  # Process all entries in the JSONL file
+start_index: 0  # Start processing from this index
+end_index: -1  # Process until this index (-1 means until the end)
+visualize_batch: false  # Whether to visualize each entry during batch processing
+
+# Output settings
+save_fig: true  # Whether to save figures
+show_plot: false  # Whether to display plots (set to false for batch processing) 

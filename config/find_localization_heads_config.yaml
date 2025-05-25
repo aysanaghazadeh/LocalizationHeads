@@ -1,0 +1,40 @@
+# @package _global_
+
+# Hydra configuration
+hydra:
+  run:
+    dir: hydra_outputs/localization_heads/${now:%Y-%m-%d}/${now:%H-%M-%S}
+  job:
+    chdir: false  # Don't change working directory when running
+
+# Localization heads finder settings
+stage: "batch"  # collect, analyze, visualize, pipeline, batch
+image_file: ""
+query: ""
+attention_file: ""
+save_id: null
+top_k: 5
+
+# Batch processing settings
+data_file: "examples/localization_data.jsonl"  # Path to JSONL file containing data entries
+output_dir: "outputs/localization_heads"
+batch_size: 1
+process_all: true  # Process all entries in the JSONL file
+start_index: 0  # Start processing from this index
+end_index: -1  # Process until this index (-1 means until the end)
+visualize_batch: false  # Whether to visualize attention during batch processing
+show_plot: false  # Whether to show plots (set to false for headless environments)
+
+# CLI specific settings
+cli_mode: false
+num_beams: 1
+max_new_tokens: 10  # We only need a few tokens for attention analysis
+conv_mode: referseg
+
+# General settings
+random_seed: 42
+device: 0  # GPU device ID 
+cache_dir: # TODO: Add cache directory
+cache_dir_vision_tower: # TODO: Add cache directory
+model_name: "liuhaotian/llava-v1.5-7b"
+model_base: null

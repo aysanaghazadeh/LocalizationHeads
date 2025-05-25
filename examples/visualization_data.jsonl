@@ -1,0 +1,3 @@
+{"id": "example_1", "attention_file": "outputs/localization_heads/llava/attention/example_1.pkl"}
+{"id": "example_2", "attention_file": "outputs/localization_heads/llava/attention/example_2.pkl", "layer": 20, "head": 5}
+{"id": "example_3", "attention_file": "outputs/localization_heads/llava/attention/example_3.pkl"} 
