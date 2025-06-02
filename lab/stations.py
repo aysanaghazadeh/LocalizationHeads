@@ -45,7 +45,7 @@ class DefaultsVars:
             },
             "begin_pos": {
                 "system": float("-inf"), "role_0": float("-inf"),
-                "image": float("-inf"), "inst_q": float("-inf"),
+                "vis": float("-inf"), "inst_q": float("-inf"),
                 "role_1": float("-inf")
             }
         }
@@ -148,7 +148,8 @@ class AttentionStation(StationEngine):
         """Store attention weights for a specific layer"""
         if "attn_weights" not in cls.state:
             cls.state["attn_weights"] = {}
-        cls.state["attn_weights"][layer_idx] = cls.detach_to_cpu(attn)
+        # @seil: We consider a case where only the batch is 1
+        cls.state["attn_weights"][layer_idx] = cls.detach_to_cpu(attn[0]) # @seil: reducing batch dimension
     
     @classmethod
     def get_attn_weights(cls):
@@ -182,16 +183,11 @@ class AttentionStation(StationEngine):
             attn = attn.detach().cpu()
         elif isinstance(attn, list):
             attn = [a.detach().cpu() if isinstance(a, torch.Tensor) and a.device.type == "cuda" else a for a in attn]
-            
             # Handle nested lists of tensors
             if attn and isinstance(attn[0], list):
                 for i, a_list in enumerate(attn):
                     attn[i] = [aa.detach().cpu() if isinstance(aa, torch.Tensor) and aa.device.type == "cuda" else aa for aa in a_list]
 
-        if osp.exists(save_to_path):
-            print(f"File already exists at {save_to_path}.")
-            return
-            
         os.makedirs(osp.dirname(save_to_path), exist_ok=True)
         with open(save_to_path, "wb") as f:
             pickle.dump(attn, f)
@@ -207,6 +203,10 @@ class MetadataStation(StationEngine):
         cls.state["qid"] = qid
 
     @classmethod
+    def get_begin_pos(cls, key):
+        return cls.segments.get("begin_pos").get(key)
+
+    @classmethod
     def get_metadata(cls):
         """Returns the metadata of the class."""
         return {
@@ -220,6 +220,10 @@ class MetadataStation(StationEngine):
             "vis_len": cls.state.get("vis_len"),
             "image_path": cls.state.get("image_path"),
         }
+
+    @classmethod
+    def get_vis_len(cls):
+        return cls.metadata.get("vis_len")
 
     @classmethod
     def set_correct(cls, correct):
@@ -281,18 +285,18 @@ class MetadataStation(StationEngine):
             prompt = tokenizer.decode(input_ids[: image_token_id - 1]) + "<im_start><image><im_end>" + tokenizer.decode(input_ids[image_token_id + 2 :])
         else:
             prompt = tokenizer.decode(input_ids[:image_token_id]) + "<image>" + tokenizer.decode(input_ids[image_token_id + 1 :])
+        
         segments = {}
-
         role_0, role_1 = conv_template.roles
         if role_0 == "" and role_1 == "": # conv: referseg
             sents_splits = prompt.split("<image>", 1)
             segments["system"] = sents_splits[0]
-            segments["image"] = "<image>".strip()
+            segments["vis"] = "<image>".strip()
             segments["text"] = sents_splits[1]
 
             tokenized_segments = {
                 "system": tokenize_segment(segments["system"], False),
-                "image": [image_token_idx] if segments["image"] else [],
+                "vis": [image_token_idx] if segments["vis"] else [],
                 "text": tokenize_segment(segments["text"], False),
             }
 
@@ -305,8 +309,8 @@ class MetadataStation(StationEngine):
                 assert a == b, f"Token mismatch: {a} != {b}"
 
             token_id_range = {
-                "system": [tokenized_segments["system"][0], tokenized_segments["image"][0]],
-                "image": [tokenized_segments["image"][0], tokenized_segments["text"][0]],
+                "system": [tokenized_segments["system"][0], tokenized_segments["vis"][0]],
+                "vis": [tokenized_segments["vis"][0], tokenized_segments["text"][0]],
                 "text": [tokenized_segments["text"][0], -1],
             }
             
@@ -379,8 +383,8 @@ class MetadataStation(StationEngine):
             
             token_id_range = {
                 "system": [tokenized_segments["system"][0], tokenized_segments["role_0"][0]],
-                "role_0": [tokenized_segments["role_0"][0], tokenized_segments["image"][0]],
-                "image": [tokenized_segments["image"][0], tokenized_segments["inst_q"][0]],
+                "role_0": [tokenized_segments["role_0"][0], tokenized_segments["vis"][0]],
+                "vis": [tokenized_segments["vis"][0], tokenized_segments["inst_q"][0]],
                 "inst_q": [tokenized_segments["inst_q"][0], tokenized_segments["role_1"][0]],
                 "role_1": [tokenized_segments["role_1"][0], -1],
             }
@@ -389,12 +393,12 @@ class MetadataStation(StationEngine):
         begin_pos = 0
         for key, token_ids in tokenized_segments.items():
             cls.set_begin_pos(key=key, idx=begin_pos)
-            if key == "image":
+            if key == "vis":
                 end_pos = begin_pos + cls.metadata["vis_len"]
             else:
                 end_pos = begin_pos + len(token_ids)
             begin_pos = end_pos
-            cls.set_text_pieces(key=key, texts=[tokenizer.decode(token_ids)] if key != "image" else ["<image>"])
+            cls.set_text_pieces(key=key, texts=[tokenizer.decode(token_ids)] if key != "vis" else ["<image>"])
 
         return token_id_range, input_ids_renewed
 

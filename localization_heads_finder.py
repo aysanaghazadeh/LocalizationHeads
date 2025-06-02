@@ -14,6 +14,7 @@ from PIL import Image
 import json
 import re
 from scipy.ndimage import label
+from lab import MetadataStation
 
 # Add current directory to path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -147,6 +148,7 @@ class LocalizationHeadsFinder:
         img_idx = input_ids[0].tolist().index(IMAGE_TOKEN_INDEX)
         print(self.tokenizer.batch_decode(input_ids[:, :img_idx]))
         print(self.tokenizer.batch_decode(input_ids[:, img_idx+1:]))
+        
         # Generate response with attention
         with torch.inference_mode():
             outputs = self.model.generate(
@@ -158,8 +160,18 @@ class LocalizationHeadsFinder:
             )
 
         # Process attention weights
-        attentions = AttentionStation.get_attn_weights() # [bsz, head, query, key]
-        attentions = attentions[:, :, -1:, img_idx+1:]
+        begin_pos_vis = MetadataStation.get_begin_pos('vis')
+        vis_len = MetadataStation.get_vis_len()
+        attentions_dict = AttentionStation.get_attn_weights()
+        if isinstance(attentions_dict, dict):
+            layers = sorted(attentions_dict.keys())
+            if layers:
+                attentions = torch.stack([attentions_dict[l] for l in layers], dim=0)
+            else:
+                attentions = torch.empty(0)
+        else:
+            attentions = attentions_dict
+        attentions = attentions[:, :, -1:, begin_pos_vis:begin_pos_vis+vis_len] # [L, H, 1, vis_len]
 
         # Save attention weights
         save_id = save_id or f"query_{len(os.listdir(AttentionStation.get_save_to_path()))}"
@@ -245,7 +257,7 @@ class LocalizationHeadsFinder:
         Returns:
             Index of the elbow point
         """
-        return
+        raise NotImplementedError
         
 
     def vis_attn_summation(self, attention_map: torch.Tensor) -> List:
@@ -258,7 +270,7 @@ class LocalizationHeadsFinder:
         Returns:
             List of heads that have high attention to image tokens
         """ 
-        return
+        raise NotImplementedError
 
 
         
@@ -312,21 +324,20 @@ class LocalizationHeadsFinder:
                 metadata = pickle.load(f)
             print(f"Analyzing attention for query: {metadata['query']}")
 
-        # Get attention dimensions
-        '''
-        attention_data: Dict[Tensor[bsz, layer, head, query, key]]
-        '''
-
         # Convert attention data from dictionary to tensor
-        attention = []
-        for layer in attention_data:
-            attention.append(attention_data[layer])
+        if isinstance(attention_data, dict):
+            layers = sorted(attention_data.keys())
+            if layers:
+                attention = torch.stack([attention_data[l] for l in layers], dim=0)
+            else:
+                attention = torch.empty(0)
+        else:
+            attention = attention_data
 
-        attention = torch.stack(attention, dim=1)
-        L, bsz, H, seq_len, _ = attention.shape
+        L, H, _, vis_len = attention.shape
 
         # Estimate the patch size (assuming square patches)
-        P = int(np.sqrt(seq_len // 2))  # Rough estimate, might need adjustment
+        P = int(np.sqrt(vis_len))  # Rough estimate, might need adjustment
 
         # Results storage
         results = []
@@ -334,52 +345,35 @@ class LocalizationHeadsFinder:
         # Analyze each layer and head
         for l in range(L):
             for h in range(H):
-                try:
-                    # Extract attention map for this layer and head
-                    attn_map = attention[l, 0, h]  # [seq_len, seq_len]
+                # Extract attention map for this layer and head
+                vis_attn = attention[l, h, 0]
 
-                    # Focus on the last token's attention to image tokens
-                    last_token_idx = -1
-                    image_start_idx = 1  # Approximate position, adjust as needed
-                    image_end_idx = image_start_idx + P*P  # Approximate position
+                # Extract attention to image tokens and reshape to 2D
+                vis_attn_map = vis_attn.reshape(P, P)
+                
+                # Calculate vis_attn summation
+                sum_result = self.vis_attn_summation(vis_attn)
 
-                    # Extract attention to image tokens and reshape to 2D
-                    vis_attn = attn_map[last_token_idx, image_start_idx:image_end_idx].reshape(P, P)
-                    
-                    # Calculate vis_attn summation
-                    sum_result = self.vis_attn_summation(vis_attn)
+                # Calculate spatial entropy
+                se_result = self.spatial_entropy(vis_attn_map)
+                se = se_result["spatial_entropy"]
+                labeled_array = se_result["labeled_array"]
 
-                    # Calculate spatial entropy
-                    se_result = self.spatial_entropy(vis_attn)
-                    se = se_result["spatial_entropy"]
-                    labeled_array = se_result["labeled_array"]
+                # Find largest component
+                max_label, max_size = self.find_largest_component(labeled_array)
 
-                    # Find largest component
-                    max_label, max_size = self.find_largest_component(labeled_array)
+                # Check if the attention focuses on the bottom row (often a sign of non-localization)
+                bottom_row_focus = 1 if (labeled_array[-1, :] > 0).all() else 0
 
-                    # Check if the attention focuses on the bottom row (often a sign of non-localization)
-                    bottom_row_focus = 1 if (labeled_array[-1, :] > 0).all() else 0
-
-                    # Store results
-                    results.append({
-                        "layer": l,
-                        "head": h,
-                        "spatial_entropy": se,
-                        "max_component_size": max_size,
-                        "bottom_row_focus": bottom_row_focus,
-                        "num_components": se_result["num_components"]
-                    })
-                except Exception as e:
-                    print(f"Warning: Error analyzing layer {l}, head {h}: {e}")
-                    # Add a placeholder entry with infinite spatial entropy
-                    results.append({
-                        "layer": l,
-                        "head": h,
-                        "spatial_entropy": float('inf'),
-                        "max_component_size": 0,
-                        "bottom_row_focus": 0,
-                        "num_components": 0
-                    })
+                # Store results
+                results.append({
+                    "layer": l,
+                    "head": h,
+                    "spatial_entropy": se,
+                    "max_component_size": max_size,
+                    "bottom_row_focus": bottom_row_focus,
+                    "num_components": se_result["num_components"]
+                })
 
         # Sort results by spatial entropy (lower is more focused)
         results.sort(key=lambda x: x["spatial_entropy"])
@@ -557,8 +551,6 @@ class LocalizationHeadsFinder:
 
         # Process each entry
         for i, entry in enumerate(tqdm(data, desc="Processing entries")):
-            # try:
-            # Extract data from entry
             entry_id = entry.get('id', f"entry_{i}")
             prompt = entry.get('prompt', '')
             image_path = entry.get('image_path', '')
@@ -589,10 +581,6 @@ class LocalizationHeadsFinder:
                 with open(batch_results_file, 'wb') as f:
                     pickle.dump(results[-self.cfg.batch_size:], f)
                 print(f"Saved batch results to {batch_results_file}")
-
-        # except Exception as e:
-        #     print(f"Error processing entry {entry.get('id', i)}: {e}")
-        #     # Continue with next entry instead of stopping the whole batch
 
         # Save final results
         final_results_file = os.path.join(self.output_dir, "final_results.pkl")
