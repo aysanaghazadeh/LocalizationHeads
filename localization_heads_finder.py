@@ -248,16 +248,49 @@ class LocalizationHeadsFinder:
     
     def find_elbow_point(self, x: List, y: List) -> int:
         """
-        Find the elbow point in a list of values
+        Find the elbow point in a list of values using the chord method
         
         Args:
-            x: List of x values
-            y: List of y values
+            x: List of head indices (e.g., [0, 1, 2, ...])
+            y: List of attention summation values for each head
             
         Returns:
-            Index of the elbow point
+            Threshold index - heads with indices >= this threshold should be considered
         """
-        raise NotImplementedError
+        # Convert inputs to numpy arrays
+        x_arr = np.array(x)
+        y_arr = np.array(y)
+        
+        # Sort the values based on summation (y values)
+        sorted_indices = np.argsort(y_arr)
+        x_sorted = x_arr[sorted_indices]
+        y_sorted = y_arr[sorted_indices]
+        
+        # Create points for the chord method
+        points = np.array([(i, val) for i, val in enumerate(y_sorted)])
+        
+        # Start and end points of the chord
+        start, end = points[0], points[-1]
+        
+        # Calculate distances from points to the chord
+        line_vec = end - start
+        line_mag = np.linalg.norm(line_vec)
+        unit_line_vec = line_vec / line_mag
+        vec_from_start = points - start
+        
+        # Calculate the scalar projection and then the vector projection
+        scalar_proj = np.dot(vec_from_start, unit_line_vec)
+        proj = np.outer(scalar_proj, unit_line_vec)
+        
+        # Calculate perpendicular distances
+        distances = np.linalg.norm(vec_from_start - proj, axis=1)
+        
+        # Find the point with maximum distance
+        elbow_idx = np.argmax(distances)
+        
+        # Return the actual head index at the elbow point
+        # This will be used as the threshold
+        return x_sorted[elbow_idx]
         
 
     def vis_attn_summation(self, attention_map: torch.Tensor) -> List:
@@ -268,34 +301,12 @@ class LocalizationHeadsFinder:
             attention_map: 2D attention map tensor
             
         Returns:
-            List of heads that have high attention to image tokens
+            List of attention summation values for each head
         """ 
-        raise NotImplementedError
-
-
+        # Calculate the sum of attention weights
+        attn_sum = torch.sum(attention_map).item()
         
-    def find_largest_component(self, labeled_array: np.ndarray) -> Tuple[int, int]:
-        """
-        Find the largest connected component in a labeled array
-        
-        Args:
-            labeled_array: Array with labeled components
-            
-        Returns:
-            Tuple of (max_label, max_size)
-        """
-        # Calculate frequency of each label (excluding background)
-        unique_labels, counts = np.unique(labeled_array[labeled_array > 0], return_counts=True)
-
-        if len(counts) == 0:  # No components found
-            return None, 0
-
-        # Find the largest component
-        max_idx = np.argmax(counts)
-        max_label = unique_labels[max_idx]
-        max_size = counts[max_idx]
-
-        return max_label, max_size
+        return attn_sum
 
     def analyze_attention_file(self, attention_file: str) -> Dict:
         """
@@ -339,40 +350,72 @@ class LocalizationHeadsFinder:
         # Estimate the patch size (assuming square patches)
         P = int(np.sqrt(vis_len))  # Rough estimate, might need adjustment
 
-        # Results storage
-        results = []
+        # First pass: collect summation values for all heads
+        head_indices = []
+        summation_values = []
 
-        # Analyze each layer and head
         for l in range(L):
             for h in range(H):
+                # Calculate head index
+                head_idx = l * H + h
+                head_indices.append(head_idx)
+                
                 # Extract attention map for this layer and head
                 vis_attn = attention[l, h, 0]
-
-                # Extract attention to image tokens and reshape to 2D
-                vis_attn_map = vis_attn.reshape(P, P)
                 
                 # Calculate vis_attn summation
                 sum_result = self.vis_attn_summation(vis_attn)
+                summation_values.append(sum_result)
+        
+        # Find threshold using elbow point detection
+        threshold_idx = self.find_elbow_point(head_indices, summation_values)
+        
+        # Results storage
+        results = []
 
-                # Calculate spatial entropy
-                se_result = self.spatial_entropy(vis_attn_map)
-                se = se_result["spatial_entropy"]
-                labeled_array = se_result["labeled_array"]
-
-                # Find largest component
-                max_label, max_size = self.find_largest_component(labeled_array)
-
-                # Check if the attention focuses on the bottom row (often a sign of non-localization)
-                bottom_row_focus = 1 if (labeled_array[-1, :] > 0).all() else 0
+        # Second pass: analyze heads based on threshold
+        for l in range(L):
+            for h in range(H):
+                # Calculate head index
+                head_idx = l * H + h
+                
+                # Extract attention map for this layer and head
+                vis_attn = attention[l, h, 0]
+                
+                # Calculate vis_attn summation
+                sum_result = self.vis_attn_summation(vis_attn)
+                
+                # Extract attention to image tokens and reshape to 2D
+                vis_attn_map = vis_attn.reshape(P, P)
+                
+                # Only calculate spatial entropy if head index is >= threshold
+                if head_idx >= threshold_idx:
+                    # Calculate spatial entropy
+                    se_result = self.spatial_entropy(vis_attn_map)
+                    se = se_result["spatial_entropy"]
+                    labeled_array = se_result["labeled_array"]
+                    
+                    # Check if the attention focuses on the bottom row (often a sign of non-localization)
+                    bottom_row_focus = 1 if (labeled_array[-1, :] > 0).all() else 0
+                    
+                    num_components = se_result["num_components"]
+                else:
+                    # For heads below threshold, set default values
+                    se = float('inf')  # High entropy (unfocused)
+                    bottom_row_focus = 0
+                    num_components = 0
+                    labeled_array = None
 
                 # Store results
                 results.append({
                     "layer": l,
                     "head": h,
+                    "head_idx": head_idx,
+                    "attn_sum": sum_result,
                     "spatial_entropy": se,
-                    "max_component_size": max_size,
                     "bottom_row_focus": bottom_row_focus,
-                    "num_components": se_result["num_components"]
+                    "num_components": num_components,
+                    "above_threshold": head_idx >= threshold_idx
                 })
 
         # Sort results by spatial entropy (lower is more focused)
