@@ -497,7 +497,7 @@ class LocalizationHeadsFinder:
             attn_map = attn_gen_wise[l, 0, h]
 
             # Estimate patch size
-            P = int(np.sqrt(attn_map.shape[1] // 2))
+            P = int(np.sqrt(attn_map.shape[1]))
 
             # Focus on the last token's attention to image tokens
             last_token_idx = -1
