@@ -361,7 +361,7 @@ class LocalizationHeadsFinder:
                 head_indices.append(head_idx)
                 
                 # Extract attention map for this layer and head
-                vis_attn = attention[l, h, 0]
+                vis_attn = attention[l, h, 0] # [vis_len]
                 
                 # Calculate vis_attn summation
                 sum_result = self.vis_attn_summation(vis_attn)
@@ -380,7 +380,7 @@ class LocalizationHeadsFinder:
                 head_idx = l * H + h
                 
                 # Extract attention map for this layer and head
-                vis_attn = attention[l, h, 0]
+                vis_attn = attention[l, h, 0] # [vis_len]
                 
                 # Calculate vis_attn summation
                 sum_result = self.vis_attn_summation(vis_attn)
@@ -443,7 +443,7 @@ class LocalizationHeadsFinder:
 
         # Load attention data
         with open(attention_file, "rb") as f:
-            attention_data = pickle.load(f)
+            attention = pickle.load(f) # [L, H, 1, vis_len]
 
         # Load metadata if available
         metadata_file = attention_file.replace(".pkl", "_metadata.pkl")
@@ -488,27 +488,21 @@ class LocalizationHeadsFinder:
 
         # Plot attention maps
         offset = 1 if original_image else 0
-        attn_gen_wise = attention_data[0]  # First generation step
 
         for i, head_info in enumerate(top_heads):
             l, h = head_info["layer"], head_info["head"]
 
             # Extract attention map
-            attn_map = attn_gen_wise[l, 0, h]
+            attn_map = attention[l, h, 0] # [vis_len]
 
             # Estimate patch size
-            P = int(np.sqrt(attn_map.shape[1]))
-
-            # Focus on the last token's attention to image tokens
-            last_token_idx = -1
-            image_start_idx = 1  # Approximate position
-            image_end_idx = image_start_idx + P*P  # Approximate position
+            P = int(np.sqrt(attn_map.shape[0]))
 
             try:
-                vis_attn = attn_map[last_token_idx, image_start_idx:image_end_idx].reshape(P, P)
+                attn_map_square = attn_map.reshape(P, P)
 
                 # Plot attention map
-                im = axes[i + offset].imshow(vis_attn.detach().cpu().numpy(), cmap='viridis')
+                im = axes[i + offset].imshow(attn_map_square.detach().cpu().numpy(), cmap='viridis')
                 axes[i + offset].set_title(f"L{l}-H{h}\nSE: {head_info['spatial_entropy']:.2f}")
                 axes[i + offset].axis('off')
 
