@@ -157,21 +157,6 @@ python cli_llava.py cli_mode=true
 python cli_llava.py query="Describe this image" image_file=/path/to/image.jpg
 ```
 
-### Running Inference
-
-```bash
-# Run with default configuration
-python llava/inference_llava.py
-
-# Override configuration values from command line
-python llava/inference_llava.py model.name=llava-v1.5-13b device=1
-```
-
-## TODO
-
-[  ] Add code to compute elbow point from attention summation
-
-
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details. 
