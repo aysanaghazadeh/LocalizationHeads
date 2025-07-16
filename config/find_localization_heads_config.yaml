@@ -34,7 +34,7 @@ conv_mode: referseg
 # General settings
 random_seed: 42
 device: 0  # GPU device ID 
-cache_dir: llava-hf/llava-v1.5-7b # TODO: Add cache directory
+cache_dir: "llava-hf/llava-1.5-7b-hf" # TODO: Add cache directory
 cache_dir_vision_tower: # TODO: Add cache directory
 model_name: "liuhaotian/llava-v1.5-7b"
 model_base: null
